@@ -50,16 +50,17 @@ void getIMEI(){
 }
 
 void initModem(){
-  sendAT("AT+CGATT=1", 8000, true);
-  sendAT("AT+CGDCONT=1,\"IP\",\"cmnet\"",3000,true);
+  sendAT("AT+CGATT=1", 5000, true);
+  //sendAT("AT+CGDCONT=1,\"IP\",\"cmnet\"",3000,true);
   sendAT("AT+CGACT=1,1",8000,true);
   //sendAT("AT+CSTT=\"internet\"", 1000, true);
   //sendAT("AT+CIICR", 5000, true);
-  sendAT("AT+CIPSTATUS", 5000, true);
+  //sendAT("AT+CIPSTATUS", 5000, true);
 }
 
 void waitUntilConnected(){
-  while (!strstr(response, "+CREG: 1,1")){
+  while (!strstr(response, "+CREG: 1,1\r")){
+    Serial.println("Searching for network...");
     sendAT("AT+CREG?", 1000, true);
     delay(1000);
   }
@@ -68,18 +69,17 @@ void waitUntilConnected(){
 }
 
 int getSettings(){
-  sendAT("at+cipstart=\"TCP\",\"eero.tech\",8080",10000, true);
-  //sendAT("AT+CIPSEND", 2000, true);
-  sendAT("AT+CIPSEND=10,\"asdfg12345\"", 5000, true);
-  //sendAT("GET http://eero.tech HTTP/1.0\r\n",5000,true);
-  //sendAT("POST /api/submit HTTP/1.0\r\n",5000,true);
-  //sendAT("Host: eero.tech\r\n", 2000, true);
-  //sendAT("Connection: keep-alive", 2000, true);
-  //sendAT("\r\n", 500, true);
-  //sendAT("\r\n", 500, true);
-  //sendAT("GET / HTTP/1.0\r\nHost: eero.tech:8080\r\n\r\n\x1a",5000,true);
-  //Serial1.print(0x1a);
-  //sendAT("AT+CIPSEND=?", 1000, true);
+  sendAT("at+cipstart=\"TCP\",\"eero.tech\",8080",8000, true);
+
+  sendAT("AT+CIPSEND", 3000, true);
+  Serial1.print("GET /api/test HTTP/1.0\r\n");
+  delay(500);
+  Serial1.print("\r\n");
+  delay(500);
+  Serial1.write(0x1A);
+  delay(500);
+  sendAT("", 5000, true);
+
   sendAT("AT+CIPSHUT", 1000, true);
   return 0;
 }
@@ -95,12 +95,12 @@ void sendAT(String command, const int timeout, boolean debug)
   int i = 0;
   int linecout = 0;
   Serial1.print(command);
-  Serial1.print("\r");
+  Serial1.println("");
   long int time = millis();   
   while((time+timeout) > millis()){
     while(Serial1.available()){
       char currChar = Serial1.read();
-      if (linecout >= 2){
+      if (linecout >= 4){
         // skip couple of lines from the response
         // A7 module echoes the sent commands back, we want only the response
         response[i] = currChar;
@@ -112,7 +112,7 @@ void sendAT(String command, const int timeout, boolean debug)
     }
   }
   response[i] = '\0'; // end response correctly
-  Serial.print("RESP: ");
+  Serial.print("RESP:");
   Serial.print(response);
   Serial.print('\n');
 }
