@@ -15,12 +15,12 @@ int port = 80;
 int updateInterval = 25;
 
 
-char response[550];
+char response[300];
 char httpBuffer[100];
 char nodeId[7];
 char url[50];
-char jsonChar[200];
-StaticJsonBuffer<200> jsonBuffer;
+char jsonChar[150];
+StaticJsonBuffer<150> jsonBuffer;
 JsonObject& data  =   jsonBuffer.createObject();
 
 char gps_time[11];
@@ -32,6 +32,7 @@ char alt[6] = "0";
 char spd[6] = "1";
 char acc[6] = "1000";
 
+boolean cleared = false;
 
 long lastUpdate;
 
@@ -62,7 +63,7 @@ void setup()
   }
 
   waitUntilConnected();
-  //initModem();
+  initModem();
   startGPS();
   
   
@@ -77,7 +78,7 @@ void loop()
   delay(1000);
   Serial.println(F("Loop!"));
 
-  if(millis() > updateInterval*1000 + lastUpdate) {
+  if(millis() > (updateInterval*1000 + lastUpdate)) {
     lastUpdate = millis();
     getGpsData();
     getSettings();
@@ -194,109 +195,6 @@ void initModem(){
   //sendAT("AT+CIPSTATUS", 5000, true);
 }
 
-void waitUntilConnected(){
-  while (!strstr(response, "+CREG: 1,1\r")){
-    Serial.println(F("Searching for network..."));
-    sendAT(F("AT+CREG?"), 1000, DEBUG);
-    delay(1000);
-  }
-  Serial.println(F("Registered to network!"));
-  sendAT(F("AT+CSQ"), 1000, DEBUG);
-}
-
-boolean getSettings(){
-  Serial.println(F("Getting settings..."));
-
-  
-  strcpy(url, "/gps_settings_json.php?id=");
-  strcat(url, nodeId);
-
-  httpRequest("GET", url, "");
-  //Serial.print(F("httpRequest returned: "));
-  //Serial.println(response);
-
-  strcat(response, "}");
-  JsonObject& root = jsonBuffer.parseObject(strstr(response, "{"));
-  JsonObject& node_settings = root["node_settings"];
-  if(!root.success()){
-    Serial.println(F("Root parser fail!"));
-    return false;
-  }
-  updateInterval = atol(node_settings["updateInterval"]);
-
-  Serial.print(F("Update interval:"));
-  Serial.println(updateInterval);
-  return true;
-}
-
-int httpRequest(char method[5], char path[50], char data[100]){
-  Serial1.print(F("at+cipstart=\"TCP\",\""));
-  Serial1.print(host);
-  Serial1.print(F("\","));
-  Serial1.print(port);
-  sendAT("", 8000, DEBUG);
-
-  Serial.println(path);
-  sendAT("AT+CIPSEND", 3000, DEBUG);
-  // GET or POST
-  Serial1.print(method);
-  Serial1.print(F(" "));
-  Serial1.print(path);
-  Serial1.print(F(" HTTP/1.0\r\n"));
-  Serial1.print(F("Host: "));
-  Serial1.print(host);
-  Serial1.print(F("\r\n"));
-  //Serial1.print(F("Connection: close \r\n"));
-  if(method == "POST") {
-    Serial1.print(F("Content-Type: application/x-www-form-urlencoded\r\n"));
-    Serial1.print(F("Content-Length: "));
-    Serial1.print(strlen(data) + 10);
-    Serial1.print(F("\r\n"));
-    Serial1.print(F("\r\n"));
-    Serial1.print(F("gps_event="));
-    Serial1.print(data);
-  }
-  Serial1.print(F("\r\n"));
-  Serial1.write(0x1A);
-  sendAT("", 6000, DEBUG);
-  //Serial.println(response);
-  if (strstr(response, "200 OK")) {
-    // request is successfull
-    Serial.println(F("HTTP request successfull"));
-    // parse response
-    
-    int i = 0;
-    char * current = response;
-    memset(httpBuffer, 0, sizeof(httpBuffer));
-    strcpy(httpBuffer, "\0");
-
-    current = strtok(response, "\n");
-    while(current != NULL) {
-      current = strtok(NULL, "\n");
-      //Serial.print("Current");
-      //Serial.println(strlen(current));
-      //Serial.println(current);
-
-      if (i >= 3) {
-        strcat(httpBuffer, current);
-      }
-      if (strlen(current) == 1) {
-        i++;
-      }
-    }
-    Serial.print(F("HTTP response: "));
-    Serial.println(httpBuffer);
-    memset(response, 0, sizeof(response));
-    strncpy(response, httpBuffer, strlen(httpBuffer));
-    memset(httpBuffer, 0, sizeof(httpBuffer));
-    Serial1.print(F("AT+CIPCLOSE"));
-    delay(1000);
-    serialFlush();
-
-  }
-
-}
-
 void sendAT(String command, const int timeout, boolean debug)
 {
   //serialFlush();
@@ -306,11 +204,19 @@ void sendAT(String command, const int timeout, boolean debug)
   //if (debug) Serial.println(strlen(response));
   int i = 0;
   int linecout = 0;
+
   Serial1.print(command);
   Serial1.println(F(""));
   long int time = millis();   
   while((time+timeout) > millis()){
     while(Serial1.available()){
+      if (command == "" && !cleared){
+        Serial.println(F("Clearing serial buffer..."));
+        for(int j=0; j < 600; j++){
+          char garbageChar = Serial1.read();
+        }
+        cleared = true;
+      }
       char currChar = Serial1.read();
       if (linecout >= 4){
         // skip couple of lines from the response
@@ -343,3 +249,126 @@ void serialFlush(){
     char t = Serial1.read();
   }
 }
+
+void waitUntilConnected(){
+  while (!strstr(response, "+CREG: 1,1\r")){
+    Serial.println(F("Searching for network..."));
+    sendAT(F("AT+CREG?"), 1000, DEBUG);
+    delay(1000);
+  }
+  Serial.println(F("Registered to network!"));
+  sendAT(F("AT+CSQ"), 1000, DEBUG);
+}
+
+boolean getSettings(){
+  Serial.println(F("Getting settings..."));
+
+  
+  strcpy(url, "/gps_settings_json.php?id=");
+  strcat(url, nodeId);
+
+  httpRequest("GET", url, "");
+  if(strlen(response) < 40) {
+    return false;
+  }
+  Serial.print(F("Into parser: "));
+  //Serial.println(response);
+
+  //strcpy(strstr(httpBuffer, "}"), "}}");
+  //strcat(httpBuffer, "\0");
+
+  strncpy(strstr(response,"}"),"}}",3);
+
+  Serial.println(response);
+  JsonObject& root = jsonBuffer.parseObject(strstr(response, "{"));
+  JsonObject& node_settings = root["node_settings"];
+  if(!root.success()){
+    Serial.println(F("Root parser fail!"));
+    return false;
+  }
+  updateInterval = atol(node_settings["updateInterval"]);
+
+  Serial.print(F("Update interval:"));
+  Serial.println(updateInterval);
+  return true;
+}
+
+int httpRequest(char method[5], char path[50], char data[100]){
+  Serial1.print(F("at+cipstart=\"TCP\",\""));
+  Serial1.print(host);
+  Serial1.print(F("\","));
+  Serial1.print(port);
+  sendAT(F(""), 8000, DEBUG);
+
+  Serial.println(path);
+  sendAT(F("AT+CIPSEND"), 3000, DEBUG);
+  // GET or POST
+  Serial1.print(method);
+  Serial1.print(F(" "));
+  Serial1.print(path);
+  Serial1.print(F(" HTTP/1.0\r\n"));
+  Serial1.print(F("Host: "));
+  Serial1.print(host);
+  Serial1.print(F("\r\n"));
+  //Serial1.print(F("Connection: close \r\n"));
+  if(method == "POST") {
+    Serial1.print(F("Content-Type: application/x-www-form-urlencoded\r\n"));
+    Serial1.print(F("Content-Length: "));
+    Serial1.print(strlen(data) + 10);
+    Serial1.print(F("\r\n"));
+    Serial1.print(F("\r\n"));
+    Serial1.print(F("gps_event="));
+    Serial1.print(data);
+    cleared = false;
+  }
+  else {
+    cleared = false;
+  }
+  Serial1.print(F("\r\n"));
+  serialFlush();
+  Serial1.write(0x1A);
+  sendAT("", 6500, DEBUG);
+  Serial.println(response);
+  if (strstr(response, "200 OK")) {
+    // request is successfull
+    Serial.println(F("HTTP request successfull"));
+    // parse response
+    
+    int i = 0;
+    char * current = strstr(response, "+CIPRCV");
+    memset(httpBuffer, 0, sizeof(httpBuffer));
+    strcpy(httpBuffer, "\0");
+
+
+    current = strtok(current, "\n");
+    while(current != NULL) {
+      current = strtok(NULL, "\n");
+      //Serial.print("Current");
+      //Serial.println(strlen(current));
+      //Serial.println(current);
+
+      if (i >= 1) {
+        if (strlen(httpBuffer) < sizeof(httpBuffer) -5){
+          strcat(httpBuffer, current);
+        }
+      }
+      if (strlen(current) == 1) {
+        i++;
+      }
+    }
+    Serial.print(F("HTTP response: "));
+    Serial.println(httpBuffer);
+    memset(response, 0, sizeof(response));
+    strcpy(response, httpBuffer);
+    //memset(httpBuffer, 0, sizeof(httpBuffer));
+    //sendAT(F("AT+CIPCLOSE"), 3000, DEBUG);
+    Serial1.print(F("AT+CIPCLOSE"));
+    Serial1.println(F(""));
+    
+    delay(2000);
+    serialFlush();
+
+  }
+
+}
+
