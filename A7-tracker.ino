@@ -12,16 +12,17 @@ char host[17] = "status.ehasa.org";
 //char host[10] = "eero.tech";
 int port = 80;
 //int errorcounter = 0;
-int updateInterval = 25;
+int updateInterval = 15;
+int nullCounter = 0;
 
 
-char response[300];
+char response[470];
 char httpBuffer[100];
 char nodeId[7];
 char url[50];
 char jsonChar[150];
 StaticJsonBuffer<150> jsonBuffer;
-JsonObject& data  =   jsonBuffer.createObject();
+
 
 char gps_time[11];
 char lat[11];
@@ -81,8 +82,14 @@ void loop()
   if(millis() > (updateInterval*1000 + lastUpdate)) {
     lastUpdate = millis();
     getGpsData();
-    getSettings();
+    //getSettings();
   }
+  // restart gps if needed
+  if (nullCounter > 30){
+    Serial.println(F("GPS restart!"));
+    restartGPS();
+  }
+
 }
 
 
@@ -93,7 +100,7 @@ void startGPS() {
 }
 
 void getGpsData() {
-  sendAT(F("AT+GPSRD=1"), 1100, DEBUG);
+  sendAT(F("AT+GPSRD=1"), 1500, DEBUG);
 
   // parse one line at time
   char * current = response;
@@ -106,8 +113,23 @@ void getGpsData() {
       // correct line
       // search for the start of the message
       gpggaPointer = strstr(current, "$GPGGA");
+      Serial.println(gpggaPointer);
+
+      if (!gpggaPointer){
+        //pointer is NULL
+        Serial.println(F("gpggaPointer is NULL!"));
+        nullCounter++;
+      }
       // split to values
       value = strtok (gpggaPointer,",");
+
+      strcpy(lat, "\0");
+      strcpy(lat_d, "\0");
+      strcpy(lon, "\0");
+      strcpy(lon_d, "\0");
+      strcpy(acc, "\0");
+      strcpy(alt, "\0");
+
 
       int i = 0;
       while (value != NULL)
@@ -139,10 +161,12 @@ void getGpsData() {
     }
   }
 
-  if(strlen(lat)> 5){
+  if(strlen(lat) > 5){
     sendAT(F("AT+GPSRD=0"), 2500, DEBUG);
     Serial.println(F("Valid Data!"));
     // create JsonObject
+    jsonBuffer.clear();
+    JsonObject& data  =   jsonBuffer.createObject();
 
     data["id"] = nodeId;
     data["lat"] = lat;
@@ -154,7 +178,7 @@ void getGpsData() {
     data["spd"] = "0";
 
     data.printTo(jsonChar, sizeof(jsonChar));
-    data.printTo(Serial);
+    //data.printTo(Serial);
     Serial.println(jsonChar);
 
     strcpy(url, "/save_location_json.php?id=");
@@ -258,6 +282,11 @@ void waitUntilConnected(){
   }
   Serial.println(F("Registered to network!"));
   sendAT(F("AT+CSQ"), 1000, DEBUG);
+}
+
+void restartGPS(){
+  sendAT(F("AT+GPS=0"), 5000, DEBUG);
+  sendAT(F("AT+GPS=1"), 5000, DEBUG);
 }
 
 boolean getSettings(){
