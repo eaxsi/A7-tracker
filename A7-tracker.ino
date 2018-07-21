@@ -16,7 +16,7 @@ int updateInterval = 15;
 int nullCounter = 0;
 
 
-char response[470];
+char response[300];
 char httpBuffer[100];
 char nodeId[7];
 char url[50];
@@ -24,7 +24,7 @@ char jsonChar[150];
 StaticJsonBuffer<150> jsonBuffer;
 
 
-char gps_time[11];
+//char gps_time[11];
 char lat[11];
 char lat_d[3];
 char lon[11];
@@ -86,8 +86,8 @@ void loop()
   }
   // restart gps if needed
   if (nullCounter > 30){
-    Serial.println(F("GPS restart!"));
-    restartGPS();
+    Serial.println(F("Restarting gprs module..."));
+    restartModule();
   }
 
 }
@@ -136,7 +136,7 @@ void getGpsData() {
       {
         value = strtok (NULL, ",");
         if (i == 0){
-          strcpy(gps_time, value);
+          //strcpy(gps_time, value);
         }
         if (i == 1) {
           strcpy(lat, value);
@@ -181,6 +181,7 @@ void getGpsData() {
     //data.printTo(Serial);
     Serial.println(jsonChar);
 
+    strcpy(url, "\0");
     strcpy(url, "/save_location_json.php?id=");
     strcat(url, nodeId);
     httpRequest("POST", url, jsonChar);
@@ -195,6 +196,7 @@ void getGpsData() {
 
 
 boolean getIMEI(){
+  serialFlush();
   sendAT(F("AT+CGSN"), 5000, DEBUG);
   if (strstr(response, "OK")) {
     strncpy(nodeId, response+9, 6);
@@ -231,13 +233,16 @@ void sendAT(String command, const int timeout, boolean debug)
 
   Serial1.print(command);
   Serial1.println(F(""));
+  Serial.flush();
   long int time = millis();   
   while((time+timeout) > millis()){
     while(Serial1.available()){
       if (command == "" && !cleared){
         Serial.println(F("Clearing serial buffer..."));
         for(int j=0; j < 600; j++){
-          char garbageChar = Serial1.read();
+          if(Serial1.available()){
+            char garbageChar = Serial1.read();
+          }
         }
         cleared = true;
       }
@@ -272,6 +277,8 @@ void serialFlush(){
   while(Serial1.available() > 0) {
     char t = Serial1.read();
   }
+  Serial1.flush();
+  Serial.flush();
 }
 
 void waitUntilConnected(){
@@ -284,15 +291,16 @@ void waitUntilConnected(){
   sendAT(F("AT+CSQ"), 1000, DEBUG);
 }
 
-void restartGPS(){
-  sendAT(F("AT+GPS=0"), 5000, DEBUG);
-  sendAT(F("AT+GPS=1"), 5000, DEBUG);
+void restartModule(){
+  sendAT(F("AT+RST=1"), 15000, DEBUG);
+  waitUntilConnected();
+  initModem();
+  startGPS();
 }
 
 boolean getSettings(){
   Serial.println(F("Getting settings..."));
 
-  
   strcpy(url, "/gps_settings_json.php?id=");
   strcat(url, nodeId);
 
@@ -329,6 +337,10 @@ int httpRequest(char method[5], char path[50], char data[100]){
   Serial1.print(port);
   sendAT(F(""), 8000, DEBUG);
 
+  if (strstr(response, "ERROR")) {
+    nullCounter++;
+  }
+
   Serial.println(path);
   sendAT(F("AT+CIPSEND"), 3000, DEBUG);
   // GET or POST
@@ -339,6 +351,7 @@ int httpRequest(char method[5], char path[50], char data[100]){
   Serial1.print(F("Host: "));
   Serial1.print(host);
   Serial1.print(F("\r\n"));
+  Serial1.flush();
   //Serial1.print(F("Connection: close \r\n"));
   if(method == "POST") {
     Serial1.print(F("Content-Type: application/x-www-form-urlencoded\r\n"));
@@ -348,6 +361,7 @@ int httpRequest(char method[5], char path[50], char data[100]){
     Serial1.print(F("\r\n"));
     Serial1.print(F("gps_event="));
     Serial1.print(data);
+    Serial1.flush();
     cleared = false;
   }
   else {
@@ -364,7 +378,7 @@ int httpRequest(char method[5], char path[50], char data[100]){
     // parse response
     
     int i = 0;
-    char * current = strstr(response, "+CIPRCV");
+    char * current = strstr(response, "Content-Length:");
     memset(httpBuffer, 0, sizeof(httpBuffer));
     strcpy(httpBuffer, "\0");
 
@@ -393,6 +407,7 @@ int httpRequest(char method[5], char path[50], char data[100]){
     //sendAT(F("AT+CIPCLOSE"), 3000, DEBUG);
     Serial1.print(F("AT+CIPCLOSE"));
     Serial1.println(F(""));
+    Serial.flush();
     
     delay(2000);
     serialFlush();
